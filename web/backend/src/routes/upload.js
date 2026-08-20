@@ -10,7 +10,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 
-const { uploadFile, uploadRawBuffer, PUBLIC_BASE_URL } = require('../services/r2-storage');
+const { uploadFile, uploadRawBuffer, PUBLIC_BASE_URL, fixVideoFastStart } = require('../services/r2-storage');
 const { generateQRDataUrl } = require('../services/qr-service');
 const { validateFile, guessMimeType, MAX_VIDEO_SIZE } = require('../utils/file-utils');
 const { generateManifest, generateAlbumHtml } = require('../services/album-page-generator');
@@ -206,6 +206,10 @@ router.post('/complete', express.json(), async (req, res) => {
         // Đảm bảo sort parts tăng dần theo PartNumber
         f.parts.sort((a, b) => a.PartNumber - b.PartNumber);
         await completeMultipartUpload(f.key, f.uploadId, f.parts);
+      }
+      // Fix moov atom cho video để iOS Safari xem được
+      if (f.mediaType === 'video' && f.key.toLowerCase().endsWith('.mp4')) {
+        await fixVideoFastStart(f.key);
       }
     }
 

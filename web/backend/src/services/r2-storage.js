@@ -3,10 +3,13 @@
  * Upload files và list album files từ Cloudflare R2 bucket.
  */
 
-const { S3Client, ListObjectsV2Command, HeadObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListObjectsV2Command, HeadObjectCommand, GetObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { Upload } = require('@aws-sdk/lib-storage');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { execFile } = require('child_process');
 
 // Load .env từ thư mục root (../../.env so với web/backend/)
 require('dotenv').config({ path: path.join(__dirname, '../../../.env') });
@@ -205,6 +208,77 @@ async function completeMultipartUpload(key, uploadId, parts) {
   return `${PUBLIC_BASE_URL}/${key}`;
 }
 
+/**
+ * Tải video từ R2, dùng ffmpeg chuyển moov atom lên đầu file (faststart),
+ * rồi upload lại lên R2. Giúp iOS Safari phát được video ngay lập tức.
+ * Lệnh ffmpeg chỉ copy stream (không encode lại), nên rất nhanh.
+ */
+async function fixVideoFastStart(key) {
+  let ffmpegPath;
+  try {
+    ffmpegPath = require('ffmpeg-static');
+  } catch (e) {
+    console.warn('[FastStart] ffmpeg-static không khả dụng, bỏ qua fix faststart.');
+    return;
+  }
+
+  const tmpDir = os.tmpdir();
+  const inputPath = path.join(tmpDir, `input_${Date.now()}.mp4`);
+  const outputPath = path.join(tmpDir, `output_${Date.now()}.mp4`);
+
+  try {
+    // 1. Tải video từ R2 về file tạm
+    console.log(`[FastStart] Đang tải ${key} từ R2...`);
+    const getCmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
+    const response = await r2Client.send(getCmd);
+    const writeStream = fs.createWriteStream(inputPath);
+    await new Promise((resolve, reject) => {
+      response.Body.pipe(writeStream);
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+    console.log(`[FastStart] Đã tải xong (${formatSize(fs.statSync(inputPath).size)})`);
+
+    // 2. Chạy ffmpeg: copy stream + di chuyển moov atom lên đầu
+    await new Promise((resolve, reject) => {
+      execFile(ffmpegPath, [
+        '-i', inputPath,
+        '-c', 'copy',           // Không encode lại, chỉ copy
+        '-movflags', '+faststart', // Di chuyển moov atom lên đầu
+        '-y',                   // Ghi đè nếu file tồn tại
+        outputPath
+      ], { timeout: 120000 }, (err, stdout, stderr) => {
+        if (err) {
+          console.error('[FastStart] ffmpeg lỗi:', stderr);
+          return reject(err);
+        }
+        resolve();
+      });
+    });
+    console.log(`[FastStart] ffmpeg xử lý xong (${formatSize(fs.statSync(outputPath).size)})`);
+
+    // 3. Upload file đã fix lại lên R2 (ghi đè file cũ)
+    const fixedBuffer = fs.readFileSync(outputPath);
+    const upload = new Upload({
+      client: r2Client,
+      params: {
+        Bucket: BUCKET_NAME,
+        Key: key,
+        Body: fixedBuffer,
+        ContentType: 'video/mp4',
+      },
+    });
+    await upload.done();
+    console.log(`[FastStart] ✅ Đã upload lại ${key} với moov atom ở đầu file!`);
+  } catch (err) {
+    console.error(`[FastStart] ❌ Lỗi xử lý ${key}:`, err.message);
+  } finally {
+    // 4. Dọn rác file tạm
+    try { fs.unlinkSync(inputPath); } catch (e) {}
+    try { fs.unlinkSync(outputPath); } catch (e) {}
+  }
+}
+
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -221,5 +295,6 @@ module.exports = {
   getPresignedUrl,
   initMultipartUpload,
   getPresignedUrlForPart,
-  completeMultipartUpload 
+  completeMultipartUpload,
+  fixVideoFastStart
 };
