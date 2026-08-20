@@ -239,11 +239,13 @@ async function fixVideoFastStart(key) {
     });
     console.log(`[FastStart] Đã tải xong (${formatSize(fs.statSync(inputPath).size)})`);
 
-    // 2. Chạy ffmpeg: copy stream + di chuyển moov atom lên đầu
+    // 2. Chạy ffmpeg: copy stream video + convert audio sang aac + faststart
     await new Promise((resolve, reject) => {
       execFile(ffmpegPath, [
         '-i', inputPath,
-        '-c', 'copy',           // Không encode lại, chỉ copy
+        '-c:v', 'copy',           // Giữ nguyên video (nhanh)
+        '-c:a', 'aac',            // Convert audio sang aac (fix lỗi iOS mất tiếng)
+        '-b:a', '128k',           // Bitrate chuẩn cho web
         '-movflags', '+faststart', // Di chuyển moov atom lên đầu
         '-y',                   // Ghi đè nếu file tồn tại
         outputPath

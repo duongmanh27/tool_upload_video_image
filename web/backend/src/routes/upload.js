@@ -161,14 +161,22 @@ router.post('/init', async (req, res) => {
 
       let uploadId = null;
       let url = null;
+      let presignedUrls = null;
 
       if (f.size > 5 * 1024 * 1024) { // > 5MB -> Multipart
         uploadId = await initMultipartUpload(key, mimeType);
+        const CHUNK_SIZE = 5 * 1024 * 1024;
+        const totalChunks = Math.ceil(f.size / CHUNK_SIZE);
+        const presignTasks = [];
+        for (let i = 1; i <= totalChunks; i++) {
+          presignTasks.push(getPresignedUrlForPart(key, uploadId, i));
+        }
+        presignedUrls = await Promise.all(presignTasks);
       } else { // <= 5MB -> Simple Presigned URL
         url = await getPresignedUrl(key, mimeType);
       }
 
-      results.push({ id: f.id, key, uploadId, url, safeName, originalName: f.name });
+      results.push({ id: f.id, key, uploadId, url, presignedUrls, safeName, originalName: f.name });
     }
     res.json({ success: true, albumId, files: results });
   } catch (err) {
@@ -177,20 +185,7 @@ router.post('/init', async (req, res) => {
   }
 });
 
-/**
- * POST /api/upload/presign
- * Body: { key, uploadId, partNumber }
- */
-router.post('/presign', async (req, res) => {
-  try {
-    const { key, uploadId, partNumber } = req.body;
-    const url = await getPresignedUrlForPart(key, uploadId, partNumber);
-    res.json({ success: true, url });
-  } catch (err) {
-    console.error('[Presign] Error:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
+
 
 /**
  * POST /api/upload/complete
@@ -207,9 +202,9 @@ router.post('/complete', express.json(), async (req, res) => {
         f.parts.sort((a, b) => a.PartNumber - b.PartNumber);
         await completeMultipartUpload(f.key, f.uploadId, f.parts);
       }
-      // Fix moov atom cho video để iOS Safari xem được
+      // Fix moov atom cho video để iOS Safari xem được (Chạy ngầm không block)
       if (f.mediaType === 'video' && f.key.toLowerCase().endsWith('.mp4')) {
-        await fixVideoFastStart(f.key);
+        fixVideoFastStart(f.key).catch(e => console.error(`[Background FFmpeg] Lỗi: ${e.message}`));
       }
     }
 

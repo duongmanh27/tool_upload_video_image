@@ -212,16 +212,24 @@ async function doUpload() {
     
     const { albumId, files: serverFiles } = initRes;
     
-    // 2. Upload từng file trực tiếp lên R2
+    // 2. Upload các file trực tiếp lên R2 (Chạy song song)
     const completePayload = { albumId, files: [] };
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
 
-    for (let i = 0; i < selectedItems.length; i++) {
-      const item = selectedItems[i];
-      const sFile = serverFiles.find(f => f.id === item.id);
-      if (!sFile) continue;
+    const fileUploadProgress = new Array(selectedItems.length).fill(0);
+    const totalUploadSize = selectedItems.reduce((acc, item) => acc + item.file.size, 0);
 
-      setProgress((i / selectedItems.length) * 100, `Đang upload: ${item.file.name}`);
+    const updateGlobalProgress = (index, bytes) => {
+      fileUploadProgress[index] = bytes;
+      const uploadedBytes = fileUploadProgress.reduce((a, b) => a + b, 0);
+      const pct = (uploadedBytes / totalUploadSize) * 100;
+      setProgress(pct, `Đang tải lên... ${Math.round(pct)}%`);
+    };
+
+    const MAX_CONCURRENT_FILES = 3;
+    const fileTasks = selectedItems.map((item, index) => async () => {
+      const sFile = serverFiles.find(f => f.id === item.id);
+      if (!sFile) return;
       
       const filePayload = {
         id: item.id,
@@ -236,69 +244,67 @@ async function doUpload() {
       if (sFile.url) {
         // File nhỏ <= 5MB: PUT 1 lần
         await uploadPartDirect(sFile.url, item.file, item.file.type, (pct) => {
-          const overallPct = ((i + (pct/100)) / selectedItems.length) * 100;
-          setProgress(overallPct, item.file.name);
+          updateGlobalProgress(index, item.file.size * (pct/100));
         });
-      } else if (sFile.uploadId) {
-        // File lớn > 5MB: Multipart Upload chạy CONCURRENT (song song)
+      } else if (sFile.uploadId && sFile.presignedUrls) {
+        // File lớn > 5MB: Multipart Upload chạy CONCURRENT chunks
         const totalChunks = Math.ceil(item.file.size / CHUNK_SIZE);
-        const MAX_CONCURRENT = 4; // Tải lên cùng lúc 4 cục
-        let uploadedBytes = new Array(totalChunks).fill(0);
-        let completedChunks = 0;
+        const MAX_CONCURRENT_CHUNKS = 4;
+        let uploadedBytesArray = new Array(totalChunks).fill(0);
 
-        // Tạo mảng danh sách công việc (các cục)
         const tasks = Array.from({ length: totalChunks }, (_, idx) => idx + 1);
         
-        // Hàm xử lý 1 cục
         const uploadTask = async (partNumber) => {
           const start = (partNumber - 1) * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, item.file.size);
           const chunk = item.file.slice(start, end);
 
-          // 1. Lấy presigned URL
-          const presignRes = await fetch('/api/upload/presign', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: sFile.key, uploadId: sFile.uploadId, partNumber })
-          }).then(r => r.json());
+          // Lấy URL đã cấp phát sẵn từ /init
+          const presignUrl = sFile.presignedUrls[partNumber - 1];
+          if (!presignUrl) throw new Error(`Thiếu URL cho phần ${partNumber}`);
 
-          if (!presignRes.success) throw new Error(`Lỗi presign phần ${partNumber}`);
-
-          // 2. Upload cục lên R2
-          const etag = await uploadPartDirect(presignRes.url, chunk, '', (chunkPct) => {
-            uploadedBytes[partNumber - 1] = chunk.size * (chunkPct / 100);
-            const totalUploaded = uploadedBytes.reduce((a, b) => a + b, 0);
-            const filePct = totalUploaded / item.file.size;
-            const overallPct = ((i + filePct) / selectedItems.length) * 100;
-            setProgress(overallPct, `Đang đẩy song song (${completedChunks}/${totalChunks}) - ${item.file.name}`);
+          const etag = await uploadPartDirect(presignUrl, chunk, '', (chunkPct) => {
+            uploadedBytesArray[partNumber - 1] = chunk.size * (chunkPct / 100);
+            updateGlobalProgress(index, uploadedBytesArray.reduce((a, b) => a + b, 0));
           });
 
-          uploadedBytes[partNumber - 1] = chunk.size;
-          completedChunks++;
+          uploadedBytesArray[partNumber - 1] = chunk.size;
+          updateGlobalProgress(index, uploadedBytesArray.reduce((a, b) => a + b, 0));
           return { ETag: etag, PartNumber: partNumber };
         };
 
-        // Chạy song song với pool giới hạn MAX_CONCURRENT
         const results = [];
         const executing = [];
         for (const task of tasks) {
           const p = Promise.resolve().then(() => uploadTask(task));
           results.push(p);
-          if (MAX_CONCURRENT <= tasks.length) {
+          if (MAX_CONCURRENT_CHUNKS <= tasks.length) {
             const e = p.then(() => executing.splice(executing.indexOf(e), 1));
             executing.push(e);
-            if (executing.length >= MAX_CONCURRENT) {
-              await Promise.race(executing);
-            }
+            if (executing.length >= MAX_CONCURRENT_CHUNKS) await Promise.race(executing);
           }
         }
         
-        const parts = await Promise.all(results);
-        filePayload.parts = parts;
+        filePayload.parts = await Promise.all(results);
       }
       
       completePayload.files.push(filePayload);
+    });
+
+    const executingFiles = [];
+    const allFilePromises = [];
+    for (const task of fileTasks) {
+      const p = Promise.resolve().then(() => task());
+      allFilePromises.push(p);
+      if (MAX_CONCURRENT_FILES <= fileTasks.length) {
+        const e = p.then(() => executingFiles.splice(executingFiles.indexOf(e), 1));
+        executingFiles.push(e);
+        if (executingFiles.length >= MAX_CONCURRENT_FILES) {
+          await Promise.race(executingFiles);
+        }
+      }
     }
+    await Promise.all(allFilePromises);
 
     // 3. Hoàn tất Upload
     setProgress(99, 'Đang tạo Album và mã QR...');

@@ -121,3 +121,26 @@ Giải pháp: Sử dụng **AWS S3 Multipart Upload** kết hợp **Presigned UR
 
 > [!IMPORTANT]
 > **User Review Required:** Việc thay đổi sang kiến trúc upload trực tiếp này rất tối ưu và chống đứt mạng cực tốt, nhưng sẽ làm thay đổi toàn bộ luồng hoạt động cũ. Bạn có đồng ý triển khai tính năng Chunked Upload này theo cách chuyên nghiệp nhất (Bypass server) không? Trang Album và chia sẻ QR vẫn hoạt động hoàn toàn bình thường.
+
+---
+
+## [Phase 3] Tối ưu Phát Video Lớn trên iPhone (iOS Safari)
+
+### Vấn đề
+Video dưới 2 phút xem được trên iPhone, nhưng video trên 5 phút không phát được (chỉ tải xuống được) hoặc tải rất lâu, dẫn đến lỗi timeout. 
+
+### Nguyên nhân
+1. iOS Safari bắt buộc sử dụng **HTTP Range Requests** (`bytes=0-1`) để stream video. Do thiếu expose headers CORS, iOS Safari không đọc được dung lượng file và không thể seek, dẫn đến từ chối phát video lớn.
+2. Thiếu các attributes bắt buộc trên thẻ `<video>` (`playsinline`, `crossorigin`, `preload="auto"`) và việc sử dụng thuộc tính `src` trực tiếp thay vì thẻ `<source>` không tối ưu cho iOS.
+3. Timeout của lệnh ffmpeg khi dùng để fix `moov atom` (chuyển meta data của video lên đầu file) quá ngắn (120 giây) đối với video dung lượng lớn (>100MB).
+
+### Giải pháp & Các file đã sửa
+
+- **[MODIFY]** `web/backend/setup-cors.js`: Thêm `Content-Range`, `Accept-Ranges`, `Content-Length`, `Content-Type` vào thuộc tính `ExposeHeaders` cho R2 Bucket để hỗ trợ HTTP Range Requests.
+- **[MODIFY]** `web/backend/src/services/album-page-generator.js`: Thay đổi thẻ `<video>` trong trang HTML tĩnh được lưu trên R2, thêm `playsinline`, `x5-playsinline`, `crossorigin="anonymous"`, `preload="auto"` và chuyển sang sử dụng thẻ `<source>`.
+- **[MODIFY]** `web/frontend/js/album-viewer.js`: Sửa đổi tương tự cho trình xem video cục bộ (lightbox), bổ sung các thuộc tính iOS cần thiết và thẻ `<source>`.
+- **[MODIFY]** `web/backend/src/services/r2-storage.js`: Tăng `timeout` cho quá trình chạy ffmpeg từ 120s lên 600s (10 phút) để đảm bảo các file video lớn được xử lý `faststart` (moov atom) thành công.
+- **[MODIFY]** `.env`: Chuẩn hóa lại định dạng file biến môi trường (xóa các khoảng trắng quanh dấu `=`) để thư viện `dotenv` có thể đọc thông tin xác thực một cách chính xác.
+
+> [!NOTE]
+> Các cấu hình CORS đã được áp dụng global lên toàn bộ R2 bucket. Tuy nhiên, đối với tính năng xem video qua QR trên các **Album đã upload trước đó**, bạn cần upload lại các file này vì trang `index.html` tĩnh của chúng trên R2 đang mang thẻ `<video>` cũ. Mọi album mới từ nay sẽ hoạt động mượt mà trên iOS.
