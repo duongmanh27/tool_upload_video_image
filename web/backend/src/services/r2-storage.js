@@ -3,7 +3,8 @@
  * Upload files và list album files từ Cloudflare R2 bucket.
  */
 
-const { S3Client, ListObjectsV2Command, HeadObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListObjectsV2Command, HeadObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { Upload } = require('@aws-sdk/lib-storage');
 const path = require('path');
 
@@ -147,6 +148,63 @@ async function checkAlbumExists(albumId) {
   }
 }
 
+// ==========================================
+// MỚI: PRESIGNED URL & MULTIPART UPLOAD
+// ==========================================
+
+/**
+ * Lấy một Presigned URL đơn giản (Cho file nhỏ < 5MB)
+ */
+async function getPresignedUrl(key, contentType) {
+  const command = new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    ContentType: contentType,
+  });
+  return await getSignedUrl(r2Client, command, { expiresIn: 3600 });
+}
+
+/**
+ * Bắt đầu quá trình Multipart Upload (Cho file lớn >= 5MB)
+ */
+async function initMultipartUpload(key, contentType) {
+  const command = new CreateMultipartUploadCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    ContentType: contentType,
+  });
+  const res = await r2Client.send(command);
+  return res.UploadId;
+}
+
+/**
+ * Sinh Presigned URL cho 1 cục (Part) của Multipart Upload
+ */
+async function getPresignedUrlForPart(key, uploadId, partNumber) {
+  const command = new UploadPartCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    UploadId: uploadId,
+    PartNumber: partNumber,
+  });
+  return await getSignedUrl(r2Client, command, { expiresIn: 3600 });
+}
+
+/**
+ * Hoàn tất Multipart Upload sau khi client đã upload xong tất cả các phần
+ * parts = [{ ETag, PartNumber }, ...]
+ */
+async function completeMultipartUpload(key, uploadId, parts) {
+  const command = new CompleteMultipartUploadCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    UploadId: uploadId,
+    MultipartUpload: { Parts: parts },
+  });
+  await r2Client.send(command);
+  return `${PUBLIC_BASE_URL}/${key}`;
+}
+
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -154,5 +212,14 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-module.exports = { uploadFile, uploadRawBuffer, listAlbumFiles, checkAlbumExists, PUBLIC_BASE_URL };
-
+module.exports = { 
+  uploadFile, 
+  uploadRawBuffer, 
+  listAlbumFiles, 
+  checkAlbumExists, 
+  PUBLIC_BASE_URL,
+  getPresignedUrl,
+  initMultipartUpload,
+  getPresignedUrlForPart,
+  completeMultipartUpload 
+};

@@ -28,7 +28,7 @@ function showQRModal(result) {
   modalImages.textContent    = result.imagesCount ?? 0;
   modalVideos.textContent    = result.videosCount ?? 0;
   modalTotal.textContent     = result.totalUploaded ?? 0;
-  modalSub.textContent       = result.message || 'Album đã được lưu trên Cloudflare R2';
+  modalSub.textContent       = result.message || 'Album đã được lưu trên Pro Media Vault';
 
   btnViewAlbum.href = result.albumUrl || `/album.html?id=${result.albumId}`;
 

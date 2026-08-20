@@ -56,7 +56,10 @@ router.post('/', upload.array('files', 200), async (req, res) => {
       }
 
       try {
-        const mimeType = file.mimetype || guessMimeType(file.originalname);
+        let mimeType = file.mimetype;
+        if (!mimeType || mimeType === 'application/octet-stream') {
+          mimeType = guessMimeType(file.originalname);
+        }
         const result = await uploadFile(file.buffer, file.originalname, mimeType, albumId);
         results.push({
           ...result,
@@ -121,6 +124,119 @@ router.post('/', upload.array('files', 200), async (req, res) => {
   } catch (err) {
     console.error('[Upload] Lỗi không mong đợi:', err);
     res.status(500).json({ success: false, error: `Lỗi server: ${err.message}` });
+  }
+});
+
+// ==========================================
+// CHUNKED UPLOAD APIS (Bypass Server)
+// ==========================================
+const {
+  getPresignedUrl,
+  initMultipartUpload,
+  getPresignedUrlForPart,
+  completeMultipartUpload
+} = require('../services/r2-storage');
+
+/**
+ * POST /api/upload/init
+ * Body: { albumName?: string, files: [{ id, name, size, type }] }
+ */
+router.post('/init', async (req, res) => {
+  try {
+    const { albumName, files } = req.body;
+    if (!files || files.length === 0) return res.status(400).json({ success: false, error: 'No files' });
+
+    const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const shortId = uuidv4().replace(/-/g, '').slice(0, 6).toUpperCase();
+    const albumId = albumName ? albumName.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40) : `ALBUM_${timestamp}_${shortId}`;
+
+    const results = [];
+    for (const f of files) {
+      const mimeType = f.type || guessMimeType(f.name);
+      const safeName = f.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/__+/g, '_');
+      const key = `${albumId}/${safeName}`;
+
+      let uploadId = null;
+      let url = null;
+
+      if (f.size > 5 * 1024 * 1024) { // > 5MB -> Multipart
+        uploadId = await initMultipartUpload(key, mimeType);
+      } else { // <= 5MB -> Simple Presigned URL
+        url = await getPresignedUrl(key, mimeType);
+      }
+
+      results.push({ id: f.id, key, uploadId, url, safeName, originalName: f.name });
+    }
+    res.json({ success: true, albumId, files: results });
+  } catch (err) {
+    console.error('[Init Upload] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/upload/presign
+ * Body: { key, uploadId, partNumber }
+ */
+router.post('/presign', async (req, res) => {
+  try {
+    const { key, uploadId, partNumber } = req.body;
+    const url = await getPresignedUrlForPart(key, uploadId, partNumber);
+    res.json({ success: true, url });
+  } catch (err) {
+    console.error('[Presign] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/upload/complete
+ * Body: { albumId, files: [{ id, key, uploadId, parts: [{ETag, PartNumber}], size, name, mediaType }] }
+ */
+router.post('/complete', express.json(), async (req, res) => {
+  try {
+    const { albumId, files } = req.body;
+    
+    // Hoàn thành multipart cho các file lớn
+    for (const f of files) {
+      if (f.uploadId && f.parts) {
+        // Đảm bảo sort parts tăng dần theo PartNumber
+        f.parts.sort((a, b) => a.PartNumber - b.PartNumber);
+        await completeMultipartUpload(f.key, f.uploadId, f.parts);
+      }
+    }
+
+    // Format kết quả giống route cũ để sinh trang album
+    const results = files.map(f => ({
+      key: f.key,
+      url: `${PUBLIC_BASE_URL}/${f.key}`,
+      fileName: f.key.split('/').pop(),
+      originalName: f.name,
+      size: f.size,
+      mediaType: f.mediaType
+    }));
+
+    const publicAlbumUrl = `${PUBLIC_BASE_URL}/${albumId}/index.html`;
+    const qrDataUrl = await generateQRDataUrl(publicAlbumUrl);
+
+    // Upload manifest.json và index.html
+    const manifestJson = generateManifest(albumId, results);
+    await uploadRawBuffer(Buffer.from(manifestJson, 'utf-8'), `${albumId}/manifest.json`, 'application/json');
+
+    const albumHtml = generateAlbumHtml(albumId, results, qrDataUrl);
+    await uploadRawBuffer(Buffer.from(albumHtml, 'utf-8'), `${albumId}/index.html`, 'text/html; charset=utf-8');
+
+    res.json({
+      success: true,
+      albumId,
+      albumUrl: publicAlbumUrl,
+      qrDataUrl,
+      totalUploaded: results.length,
+      files: results
+    });
+  } catch (err) {
+    console.error('[Complete Upload] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

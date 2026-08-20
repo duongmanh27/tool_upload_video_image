@@ -190,32 +190,102 @@ async function doUpload() {
   btnUpload.disabled = true;
   btnUpload.classList.add('loading');
   progressWrap.style.display = 'flex';
-  setProgress(0, `Chuẩn bị upload ${selectedItems.length} file...`);
+  setProgress(0, `Đang khởi tạo upload...`);
 
-  const formData = new FormData();
   const albumName = albumNameInput.value.trim();
-  if (albumName) formData.append('albumName', albumName);
-
-  selectedItems.forEach(item => {
-    formData.append('files', item.file, item.file.name);
-  });
+  const fileInfos = selectedItems.map(item => ({
+    id: item.id,
+    name: item.file.name,
+    size: item.file.size,
+    type: item.file.type || getMediaType(item.file)
+  }));
 
   try {
-    // Simulate per-file progress via XHR
-    const result = await uploadWithProgress(formData, (pct, loaded, total) => {
-      const fileIdx = Math.ceil((pct / 100) * selectedItems.length);
-      const currentFile = selectedItems[Math.min(fileIdx, selectedItems.length - 1)];
-      setProgress(pct, currentFile ? currentFile.file.name : '');
-    });
+    // 1. Init Upload
+    const initRes = await fetch('/api/upload/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ albumName, files: fileInfos })
+    }).then(r => r.json());
 
-    if (!result.success) throw new Error(result.error || 'Upload thất bại');
+    if (!initRes.success) throw new Error(initRes.error);
+    
+    const { albumId, files: serverFiles } = initRes;
+    
+    // 2. Upload từng file trực tiếp lên R2
+    const completePayload = { albumId, files: [] };
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+
+    for (let i = 0; i < selectedItems.length; i++) {
+      const item = selectedItems[i];
+      const sFile = serverFiles.find(f => f.id === item.id);
+      if (!sFile) continue;
+
+      setProgress((i / selectedItems.length) * 100, `Đang upload: ${item.file.name}`);
+      
+      const filePayload = {
+        id: item.id,
+        key: sFile.key,
+        uploadId: sFile.uploadId,
+        size: item.file.size,
+        name: sFile.originalName,
+        mediaType: item.mediaType,
+        parts: []
+      };
+
+      if (sFile.url) {
+        // File nhỏ <= 5MB: PUT 1 lần
+        await uploadPartDirect(sFile.url, item.file, item.file.type, (pct) => {
+          const overallPct = ((i + (pct/100)) / selectedItems.length) * 100;
+          setProgress(overallPct, item.file.name);
+        });
+      } else if (sFile.uploadId) {
+        // File lớn > 5MB: Multipart Upload
+        const totalChunks = Math.ceil(item.file.size / CHUNK_SIZE);
+        let uploadedBytes = 0;
+
+        for (let partNumber = 1; partNumber <= totalChunks; partNumber++) {
+          const start = (partNumber - 1) * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, item.file.size);
+          const chunk = item.file.slice(start, end);
+
+          // Lấy presigned URL cho chunk
+          const presignRes = await fetch('/api/upload/presign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: sFile.key, uploadId: sFile.uploadId, partNumber })
+          }).then(r => r.json());
+
+          if (!presignRes.success) throw new Error(`Lỗi presign phần ${partNumber}`);
+
+          // Upload chunk
+          const etag = await uploadPartDirect(presignRes.url, chunk, '', (chunkPct) => {
+            const currentTotal = uploadedBytes + (chunk.size * (chunkPct/100));
+            const filePct = currentTotal / item.file.size;
+            const overallPct = ((i + filePct) / selectedItems.length) * 100;
+            setProgress(overallPct, `Chunk ${partNumber}/${totalChunks} - ${item.file.name}`);
+          });
+
+          uploadedBytes += chunk.size;
+          filePayload.parts.push({ ETag: etag, PartNumber: partNumber });
+        }
+      }
+      
+      completePayload.files.push(filePayload);
+    }
+
+    // 3. Hoàn tất Upload
+    setProgress(99, 'Đang tạo Album và mã QR...');
+    const completeRes = await fetch('/api/upload/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(completePayload)
+    }).then(r => r.json());
+
+    if (!completeRes.success) throw new Error(completeRes.error);
 
     setProgress(100, 'Hoàn tất!');
-
-    // Show QR result modal
-    setTimeout(() => {
-      showQRModal(result);
-    }, 500);
+    setTimeout(() => showQRModal(completeRes), 500);
 
   } catch (err) {
     showToast(`❌ Lỗi: ${err.message}`, 'error');
@@ -224,47 +294,30 @@ async function doUpload() {
     state.isUploading = false;
     btnUpload.classList.remove('loading');
     updateUI();
-    setTimeout(() => {
-      progressWrap.style.display = 'none';
-      setProgress(0, '');
-    }, 1500);
+    setTimeout(() => { progressWrap.style.display = 'none'; setProgress(0, ''); }, 1500);
   }
 }
 
-function uploadWithProgress(formData, onProgress) {
+function uploadPartDirect(url, blob, contentType, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload');
-
+    xhr.open('PUT', url);
+    if (contentType) xhr.setRequestHeader('Content-Type', contentType);
+    
     xhr.upload.addEventListener('progress', e => {
-      if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        onProgress(pct, e.loaded, e.total);
-      }
+      if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);
     });
-
+    
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          resolve(JSON.parse(xhr.responseText));
-        } catch {
-          reject(new Error('Phản hồi server không hợp lệ'));
-        }
+        resolve(xhr.getResponseHeader('ETag'));
       } else {
-        let msg = `HTTP ${xhr.status}`;
-        try {
-          const data = JSON.parse(xhr.responseText);
-          msg = data.error || msg;
-        } catch {}
-        reject(new Error(msg));
+        reject(new Error(`HTTP ${xhr.status}`));
       }
     });
-
-    xhr.addEventListener('error', () => reject(new Error('Lỗi kết nối mạng')));
-    xhr.addEventListener('timeout', () => reject(new Error('Timeout kết nối')));
-    xhr.timeout = 300000; // 5 phút
-
-    xhr.send(formData);
+    
+    xhr.addEventListener('error', () => reject(new Error('Lỗi mạng')));
+    xhr.send(blob);
   });
 }
 

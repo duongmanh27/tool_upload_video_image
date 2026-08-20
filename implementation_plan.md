@@ -92,3 +92,32 @@ npm install
 npm start
 ```
 Truy cập trình duyệt tại địa chỉ: `http://localhost:3000`
+
+---
+
+## [Phase 2] Nâng cấp Giao diện & Upload Chia nhỏ (Chunked Upload)
+
+### 1. Cập nhật Giao diện (Beautification)
+- Sửa lại các text kỹ thuật như "Cloudflare R2 Storage" thành tên thương hiệu chuyên nghiệp hơn (ví dụ: "Pro Media Vault" hoặc "Secure Cloud Storage") trong `index.html` và `qr-display.js`.
+
+### 2. Kiến trúc Chunked Upload (Direct to R2)
+Hiện tại, Frontend gửi toàn bộ file tới Backend (Express) để xử lý. Điều này gây tốn RAM cho server Render và dễ đứt gãy nếu mạng yếu.
+Giải pháp: Sử dụng **AWS S3 Multipart Upload** kết hợp **Presigned URLs**.
+
+#### Luồng hoạt động mới:
+1. **Khởi tạo Upload (Backend)**: 
+   Frontend gửi danh sách file. Backend gọi R2 tạo một `UploadId` cho mỗi file (qua `CreateMultipartUploadCommand`).
+2. **Lấy URL cho từng phần (Backend)**: 
+   Frontend chia file thành các cục nhỏ (ví dụ 5MB/chunk). Với mỗi cục, Frontend gọi Backend xin một đường link an toàn (Presigned URL) thông qua `UploadPartCommand`.
+3. **Upload Trực tiếp (Frontend -> R2)**: 
+   Frontend gửi trực tiếp cục dữ liệu 5MB lên R2 qua link vừa lấy. Nếu mạng đứt, chỉ cần upload lại đúng cục 5MB đó! Bỏ qua hoàn toàn gánh nặng cho server Render.
+4. **Hoàn tất Upload (Backend)**: 
+   Khi tất cả các cục đã lên R2, Frontend gửi danh sách mã xác nhận (ETag) cho Backend để ghép lại thành file hoàn chỉnh (`CompleteMultipartUploadCommand`).
+
+#### Các file cần sửa:
+- **[MODIFY]** `web/backend/src/routes/upload.js`: Chuyển từ việc nhận file qua `multer` sang cung cấp API `/init`, `/presign`, `/complete`.
+- **[MODIFY]** `web/backend/src/services/r2-storage.js`: Thêm các hàm `initMultipartUpload`, `getPresignedUrlForPart`, `completeMultipartUpload`.
+- **[MODIFY]** `web/frontend/js/uploader.js`: Viết lại logic vòng lặp chia nhỏ file bằng `File.slice()` và gửi trực tiếp lên presigned URL.
+
+> [!IMPORTANT]
+> **User Review Required:** Việc thay đổi sang kiến trúc upload trực tiếp này rất tối ưu và chống đứt mạng cực tốt, nhưng sẽ làm thay đổi toàn bộ luồng hoạt động cũ. Bạn có đồng ý triển khai tính năng Chunked Upload này theo cách chuyên nghiệp nhất (Bypass server) không? Trang Album và chia sẻ QR vẫn hoạt động hoàn toàn bình thường.
