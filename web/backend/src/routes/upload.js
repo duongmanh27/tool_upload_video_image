@@ -229,12 +229,17 @@ router.post('/complete', express.json(), async (req, res) => {
     const albumHtml = generateAlbumHtml(albumId, results, qrDataUrl);
     await uploadRawBuffer(Buffer.from(albumHtml, 'utf-8'), `${albumId}/index.html`, 'text/html; charset=utf-8');
 
+    const imagesCount = results.filter(r => r.mediaType === 'image').length;
+    const videosCount = results.filter(r => r.mediaType === 'video').length;
+
     res.json({
       success: true,
       albumId,
       albumUrl: publicAlbumUrl,
       qrDataUrl,
       totalUploaded: results.length,
+      imagesCount,
+      videosCount,
       files: results
     });
   } catch (err) {
