@@ -9,47 +9,46 @@
  */
 
 'use strict';
-
 // ── DOM Refs ───────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
-const albumGrid        = $('albumGrid');
-const loadingState     = $('loadingState');
-const errorState       = $('errorState');
-const emptyState       = $('emptyState');
-const filterBar        = $('filterBar');
-const errorMsg         = $('errorMsg');
-const loadingAlbumId   = $('loadingAlbumId');
-const albumIdChip      = $('albumIdChip');
+const albumGrid = $('albumGrid');
+const loadingState = $('loadingState');
+const errorState = $('errorState');
+const emptyState = $('emptyState');
+const filterBar = $('filterBar');
+const errorMsg = $('errorMsg');
+const loadingAlbumId = $('loadingAlbumId');
+const albumIdChip = $('albumIdChip');
 const albumHeaderCount = $('albumHeaderCount');
-const countAll         = $('countAll');
-const countImages      = $('countImages');
-const countVideos      = $('countVideos');
+const countAll = $('countAll');
+const countImages = $('countImages');
+const countVideos = $('countVideos');
 
 // Lightbox
-const lightbox   = $('lightbox');
-const lbContent  = $('lbContent');
-const lbClose    = $('lbClose');
-const lbPrev     = $('lbPrev');
-const lbNext     = $('lbNext');
+const lightbox = $('lightbox');
+const lbContent = $('lbContent');
+const lbClose = $('lbClose');
+const lbPrev = $('lbPrev');
+const lbNext = $('lbNext');
 
 // QR Modal
-const qrModal    = $('qrModal');
+const qrModal = $('qrModal');
 const qrModalImg = $('qrModalImg');
-const qrModalId  = $('qrModalId');
-const btnShowQR  = $('btnShowQR');
+const qrModalId = $('qrModalId');
+const btnShowQR = $('btnShowQR');
 const btnCloseQR = $('btnCloseQR');
 
 // ── State ──────────────────────────────────────────────────────────────────
-let allFiles      = [];
+let allFiles = [];
 let filteredFiles = [];
-let currentIdx    = 0;
+let currentIdx = 0;
 let currentFilter = 'all';
-let albumData     = null;
+let albumData = null;
 
 // ── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  const params  = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams(window.location.search);
   const albumId = params.get('id');
 
   if (!albumId) {
@@ -58,11 +57,11 @@ async function init() {
   }
 
   document.title = `Album ${albumId} — Media Upload Tool`;
-  albumIdChip.textContent  = albumId;
+  albumIdChip.textContent = albumId;
   loadingAlbumId.textContent = albumId;
 
   try {
-    const res  = await fetch(`/api/album/${encodeURIComponent(albumId)}`);
+    const res = await fetch(`/api/album/${encodeURIComponent(albumId)}`);
     const data = await res.json();
 
     if (!res.ok || !data.success) {
@@ -70,14 +69,14 @@ async function init() {
     }
 
     albumData = data;
-    allFiles  = data.files || [];
+    allFiles = data.files || [];
 
     // Update header
     albumHeaderCount.textContent =
       `${data.totalFiles} file · ${data.imagesCount} ảnh · ${data.videosCount} video`;
 
     // Counts
-    countAll.textContent    = allFiles.length;
+    countAll.textContent = allFiles.length;
     countImages.textContent = data.imagesCount;
     countVideos.textContent = data.videosCount;
 
@@ -222,10 +221,17 @@ function renderLightboxItem() {
     lbContent.appendChild(img);
   } else {
     const video = document.createElement('video');
-    video.src = file.url;
-    video.controls = true;
-    video.autoplay = true;
+    video.setAttribute('controls', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.setAttribute('preload', 'auto');
+    video.setAttribute('crossorigin', 'anonymous');
+    video.setAttribute('autoplay', '');
     video.style.outline = 'none';
+    const source = document.createElement('source');
+    source.src = file.url;
+    source.type = file.fileName.toLowerCase().endsWith('.webm') ? 'video/webm' : 'video/mp4';
+    video.appendChild(source);
     lbContent.appendChild(video);
   }
 
@@ -293,9 +299,9 @@ qrModal.addEventListener('click', e => {
 // ── Keyboard Navigation ────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (lightbox.classList.contains('open')) {
-    if (e.key === 'ArrowLeft')  navLightbox(-1);
+    if (e.key === 'ArrowLeft') navLightbox(-1);
     if (e.key === 'ArrowRight') navLightbox(1);
-    if (e.key === 'Escape')     closeLightbox();
+    if (e.key === 'Escape') closeLightbox();
   }
   if (qrModal.classList.contains('open') && e.key === 'Escape') {
     qrModal.classList.remove('open');
@@ -306,10 +312,10 @@ document.addEventListener('keydown', e => {
 // ── State Helpers ──────────────────────────────────────────────────────────
 function showState(state) {
   loadingState.style.display = 'none';
-  errorState.style.display   = 'none';
-  emptyState.style.display   = 'none';
-  albumGrid.style.display    = 'none';
-  filterBar.style.display    = 'none';
+  errorState.style.display = 'none';
+  emptyState.style.display = 'none';
+  albumGrid.style.display = 'none';
+  filterBar.style.display = 'none';
 
   if (state === 'loading') {
     loadingState.style.display = 'flex';
@@ -318,8 +324,8 @@ function showState(state) {
   } else if (state === 'empty') {
     emptyState.style.display = 'flex';
   } else if (state === 'grid') {
-    albumGrid.style.display  = 'grid';
-    filterBar.style.display  = 'flex';
+    albumGrid.style.display = 'grid';
+    filterBar.style.display = 'flex';
   }
 }
 
@@ -329,7 +335,7 @@ function showError(msg) {
 }
 
 function escapeHtml(str) {
-  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Start ──────────────────────────────────────────────────────────────────

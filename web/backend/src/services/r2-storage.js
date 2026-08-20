@@ -247,7 +247,7 @@ async function fixVideoFastStart(key) {
         '-movflags', '+faststart', // Di chuyển moov atom lên đầu
         '-y',                   // Ghi đè nếu file tồn tại
         outputPath
-      ], { timeout: 120000 }, (err, stdout, stderr) => {
+      ], { timeout: 600000 }, (err, stdout, stderr) => {  // 10 phút cho video lớn
         if (err) {
           console.error('[FastStart] ffmpeg lỗi:', stderr);
           return reject(err);

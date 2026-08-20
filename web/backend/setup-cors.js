@@ -25,7 +25,7 @@ async function setupCORS() {
             AllowedHeaders: ['*'],
             AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
             AllowedOrigins: ['*'], // Cho phép upload từ mọi nguồn (localhost, render.com)
-            ExposeHeaders: ['ETag'],
+            ExposeHeaders: ['ETag', 'Content-Range', 'Accept-Ranges', 'Content-Length', 'Content-Type'],
             MaxAgeSeconds: 3600,
           },
         ],
