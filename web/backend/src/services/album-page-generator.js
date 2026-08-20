@@ -234,7 +234,18 @@ function renderLb(){
   const v=$('lbInner').querySelector('video');if(v)v.pause();
   const inner=$('lbInner');inner.innerHTML='';
   if(f.mediaType==='image'){const img=document.createElement('img');img.src=f.url;img.alt=f.fileName;inner.appendChild(img);}
-  else{const vid=document.createElement('video');vid.src=f.url;vid.controls=true;vid.autoplay=true;vid.setAttribute('playsinline','');vid.setAttribute('webkit-playsinline','');vid.setAttribute('preload','metadata');inner.appendChild(vid);}
+  else{
+    const vid=document.createElement('video');
+    vid.controls=true;
+    vid.playsInline=true;
+    vid.muted=true;
+    vid.autoplay=true;
+    vid.setAttribute('playsinline','');
+    vid.setAttribute('webkit-playsinline','');
+    vid.setAttribute('preload','auto');
+    vid.innerHTML='<source src="'+f.url+'" type="video/mp4">';
+    inner.appendChild(vid);
+  }
   const cap=document.createElement('div');cap.className='lb-cap';
   cap.innerHTML='<span class="name">'+esc(f.fileName)+'</span><span class="counter">'+(curIdx+1)+'/'+filtered.length+'</span><a class="dl" href="'+f.url+'" download="'+f.fileName+'" target="_blank">⬇️ Tải</a>';
   inner.appendChild(cap);
