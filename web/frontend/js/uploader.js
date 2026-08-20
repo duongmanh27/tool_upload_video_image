@@ -240,16 +240,22 @@ async function doUpload() {
           setProgress(overallPct, item.file.name);
         });
       } else if (sFile.uploadId) {
-        // File lớn > 5MB: Multipart Upload
+        // File lớn > 5MB: Multipart Upload chạy CONCURRENT (song song)
         const totalChunks = Math.ceil(item.file.size / CHUNK_SIZE);
-        let uploadedBytes = 0;
+        const MAX_CONCURRENT = 4; // Tải lên cùng lúc 4 cục
+        let uploadedBytes = new Array(totalChunks).fill(0);
+        let completedChunks = 0;
 
-        for (let partNumber = 1; partNumber <= totalChunks; partNumber++) {
+        // Tạo mảng danh sách công việc (các cục)
+        const tasks = Array.from({ length: totalChunks }, (_, idx) => idx + 1);
+        
+        // Hàm xử lý 1 cục
+        const uploadTask = async (partNumber) => {
           const start = (partNumber - 1) * CHUNK_SIZE;
           const end = Math.min(start + CHUNK_SIZE, item.file.size);
           const chunk = item.file.slice(start, end);
 
-          // Lấy presigned URL cho chunk
+          // 1. Lấy presigned URL
           const presignRes = await fetch('/api/upload/presign', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -258,17 +264,37 @@ async function doUpload() {
 
           if (!presignRes.success) throw new Error(`Lỗi presign phần ${partNumber}`);
 
-          // Upload chunk
+          // 2. Upload cục lên R2
           const etag = await uploadPartDirect(presignRes.url, chunk, '', (chunkPct) => {
-            const currentTotal = uploadedBytes + (chunk.size * (chunkPct/100));
-            const filePct = currentTotal / item.file.size;
+            uploadedBytes[partNumber - 1] = chunk.size * (chunkPct / 100);
+            const totalUploaded = uploadedBytes.reduce((a, b) => a + b, 0);
+            const filePct = totalUploaded / item.file.size;
             const overallPct = ((i + filePct) / selectedItems.length) * 100;
-            setProgress(overallPct, `Chunk ${partNumber}/${totalChunks} - ${item.file.name}`);
+            setProgress(overallPct, `Đang đẩy song song (${completedChunks}/${totalChunks}) - ${item.file.name}`);
           });
 
-          uploadedBytes += chunk.size;
-          filePayload.parts.push({ ETag: etag, PartNumber: partNumber });
+          uploadedBytes[partNumber - 1] = chunk.size;
+          completedChunks++;
+          return { ETag: etag, PartNumber: partNumber };
+        };
+
+        // Chạy song song với pool giới hạn MAX_CONCURRENT
+        const results = [];
+        const executing = [];
+        for (const task of tasks) {
+          const p = Promise.resolve().then(() => uploadTask(task));
+          results.push(p);
+          if (MAX_CONCURRENT <= tasks.length) {
+            const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+            executing.push(e);
+            if (executing.length >= MAX_CONCURRENT) {
+              await Promise.race(executing);
+            }
+          }
         }
+        
+        const parts = await Promise.all(results);
+        filePayload.parts = parts;
       }
       
       completePayload.files.push(filePayload);

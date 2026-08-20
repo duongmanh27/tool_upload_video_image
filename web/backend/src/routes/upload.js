@@ -152,7 +152,10 @@ router.post('/init', async (req, res) => {
 
     const results = [];
     for (const f of files) {
-      const mimeType = f.type || guessMimeType(f.name);
+      let mimeType = f.type;
+      if (!mimeType || mimeType === 'application/octet-stream' || mimeType === 'video' || mimeType === 'image') {
+        mimeType = guessMimeType(f.name);
+      }
       const safeName = f.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').replace(/__+/g, '_');
       const key = `${albumId}/${safeName}`;
 
