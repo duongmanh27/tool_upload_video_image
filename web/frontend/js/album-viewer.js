@@ -224,15 +224,16 @@ function renderLightboxItem() {
     video.setAttribute('controls', '');
     video.setAttribute('playsinline', '');
     video.setAttribute('webkit-playsinline', '');
+    video.setAttribute('x5-playsinline', '');
     video.setAttribute('preload', 'auto');
     video.setAttribute('crossorigin', 'anonymous');
-    video.setAttribute('autoplay', '');
     video.style.outline = 'none';
     const source = document.createElement('source');
     source.src = file.url;
     source.type = file.fileName.toLowerCase().endsWith('.webm') ? 'video/webm' : 'video/mp4';
     video.appendChild(source);
     lbContent.appendChild(video);
+    video.load();
   }
 
   // Caption
