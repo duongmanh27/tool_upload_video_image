@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Media Upload Tool — Cloudflare R2</title>
+  <meta name="description" content="Upload ảnh và video lên Cloudflare R2. Nhận mã QR để chia sẻ album ngay lập tức." />
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────── -->
+<header class="app-header">
+  <div class="header-brand">
+    <div class="header-logo">☁️</div>
+    <div>
+      <div class="header-title">Media Upload Tool</div>
+      <div class="header-subtitle">Cloudflare R2 Storage</div>
+    </div>
+  </div>
+  <div class="header-badge">
+    <span class="dot"></span>
+    <span>my-storge-tool</span>
+  </div>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────── -->
+<main class="app-main">
+
+  <!-- Drop Zone -->
+  <div class="drop-zone" id="dropZone" role="button" aria-label="Vùng kéo thả file" tabindex="0">
+    <span class="drop-zone-icon">🖼️</span>
+    <div class="drop-zone-title">Kéo thả ảnh & video vào đây</div>
+    <div class="drop-zone-sub">Hoặc nhấn nút bên dưới để chọn từ máy tính của bạn</div>
+    <div class="drop-zone-formats">
+      <span class="format-badge">JPG</span>
+      <span class="format-badge">PNG</span>
+      <span class="format-badge">WEBP</span>
+      <span class="format-badge">GIF</span>
+      <span class="format-badge">MP4</span>
+      <span class="format-badge">MOV</span>
+      <span class="format-badge">MKV</span>
+      <span class="format-badge">WEBM</span>
+      <span class="format-badge">AVI</span>
+    </div>
+    <button class="btn-browse" id="btnBrowse" type="button">
+      <span>📁</span> Chọn File
+    </button>
+    <input type="file" id="fileInput" multiple accept="image/*,video/*" style="display:none" aria-hidden="true" />
+  </div>
+
+  <!-- Toolbar (ẩn khi chưa có file) -->
+  <div class="toolbar" id="toolbar" style="display:none">
+    <div class="toolbar-left">
+      <div class="file-count-badge" id="fileCountBadge">
+        <strong id="selectedCount">0</strong> / <span id="totalCount">0</span> file đã chọn
+        &nbsp;·&nbsp;
+        <span id="totalSize">0 MB</span>
+      </div>
+    </div>
+    <div class="toolbar-right">
+      <button class="btn-sm" id="btnSelectAll" type="button">✅ Chọn tất cả</button>
+      <button class="btn-sm" id="btnDeselectAll" type="button">⬜ Bỏ chọn</button>
+      <button class="btn-sm danger" id="btnClearAll" type="button">🗑️ Xóa tất cả</button>
+      <div class="album-name-wrap">
+        <span class="album-name-label">Album:</span>
+        <input
+          class="album-name-input"
+          id="albumNameInput"
+          type="text"
+          placeholder="Tự động sinh mã..."
+          maxlength="40"
+          autocomplete="off"
+          aria-label="Tên album"
+        />
+      </div>
+    </div>
+  </div>
+
+  <!-- Media Grid -->
+  <div class="media-grid" id="mediaGrid" role="list" aria-label="Danh sách file đã chọn"></div>
+
+  <!-- Empty State -->
+  <div class="empty-state" id="emptyState">
+    <div class="empty-icon">📭</div>
+    <div>Chưa có file nào. Kéo thả hoặc chọn file ở trên.</div>
+  </div>
+
+</main>
+
+<!-- ── Upload Bar (Sticky Bottom) ─────────────────────── -->
+<div class="upload-bar" id="uploadBar" role="toolbar" aria-label="Thanh upload">
+  <div class="upload-bar-info">
+    <div class="upload-bar-text" id="uploadBarText">Sẵn sàng upload</div>
+    <div class="upload-bar-sub" id="uploadBarSub">Chọn file và nhấn Upload</div>
+  </div>
+  <div class="progress-wrap" id="progressWrap" style="display:none">
+    <div class="progress-label">
+      <span id="progressFile">...</span>
+      <span id="progressPct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+  </div>
+  <button class="btn-upload" id="btnUpload" type="button" disabled>
+    <div class="spinner"></div>
+    <span class="btn-text">⬆️ Upload lên R2</span>
+  </button>
+</div>
+
+<!-- ── QR Result Modal ─────────────────────────────────── -->
+<div class="modal-overlay" id="qrModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-box">
+    <div class="modal-success-icon">🎉</div>
+    <h2 class="modal-title" id="modalTitle">Upload thành công!</h2>
+    <p class="modal-sub" id="modalSub">Album đã được lưu trên Cloudflare R2</p>
+
+    <div class="modal-stats">
+      <div class="stat-item">
+        <div class="stat-value" id="modalImages">0</div>
+        <div class="stat-label">Ảnh</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="modalVideos">0</div>
+        <div class="stat-label">Video</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="modalTotal">0</div>
+        <div class="stat-label">Tổng</div>
+      </div>
+    </div>
+
+    <div class="qr-container" id="qrContainer">
+      <img id="qrImage" src="" alt="QR Code album" width="200" height="200" />
+    </div>
+
+    <div class="album-id-box">
+      <div>
+        <div class="album-id-label">Mã Album (tra cứu)</div>
+        <div class="album-id-value" id="albumIdDisplay">—</div>
+      </div>
+      <button class="btn-copy" id="btnCopyId" type="button" aria-label="Copy mã album">
+        📋 Copy
+      </button>
+    </div>
+
+    <div class="modal-actions">
+      <a class="btn-view-album" id="btnViewAlbum" href="#" target="_blank">
+        🔗 Xem Album
+      </a>
+      <button class="btn-close-modal" id="btnCloseModal" type="button">
+        ✕ Đóng
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast Container ─────────────────────────────────── -->
+<div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+<script src="/js/uploader.js"></script>
+<script src="/js/qr-display.js"></script>
+</body>
+</html>

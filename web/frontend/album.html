@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Album Viewer — Media Upload Tool</title>
+  <meta name="description" content="Xem ảnh và video trong album. Quét mã QR để truy cập." />
+  <link rel="stylesheet" href="/css/album.css" />
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────── -->
+<header class="album-header">
+  <a class="btn-back" href="/" aria-label="Quay lại trang upload">
+    ← Quay lại
+  </a>
+  <div class="album-header-info">
+    <div class="album-header-id" id="albumHeaderId">
+      <span>📁 Album</span>
+      <span class="id-chip" id="albumIdChip">—</span>
+    </div>
+    <div class="album-header-count" id="albumHeaderCount">Đang tải...</div>
+  </div>
+  <button class="btn-show-qr" id="btnShowQR" type="button">
+    📱 QR Code
+  </button>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────── -->
+<main class="album-main">
+
+  <!-- Filter Bar -->
+  <div class="filter-bar" id="filterBar" style="display:none">
+    <button class="filter-btn active" id="filterAll" type="button" data-filter="all">
+      🗂️ Tất cả <span class="filter-count" id="countAll">0</span>
+    </button>
+    <button class="filter-btn" id="filterImages" type="button" data-filter="image">
+      🖼️ Ảnh <span class="filter-count" id="countImages">0</span>
+    </button>
+    <button class="filter-btn" id="filterVideos" type="button" data-filter="video">
+      🎬 Video <span class="filter-count" id="countVideos">0</span>
+    </button>
+  </div>
+
+  <!-- Album Grid -->
+  <div class="album-grid" id="albumGrid" role="list" aria-label="Danh sách media trong album"></div>
+
+  <!-- Loading State -->
+  <div class="state-container" id="loadingState">
+    <div class="loading-spinner"></div>
+    <div class="state-title">Đang tải album...</div>
+    <div class="state-sub" id="loadingAlbumId"></div>
+  </div>
+
+  <!-- Error State -->
+  <div class="state-container" id="errorState" style="display:none">
+    <div class="state-icon">❌</div>
+    <div class="state-title">Không tìm thấy album</div>
+    <div class="state-sub" id="errorMsg">Album không tồn tại hoặc đã bị xóa.</div>
+  </div>
+
+  <!-- Empty State -->
+  <div class="state-container" id="emptyState" style="display:none">
+    <div class="state-icon">📭</div>
+    <div class="state-title">Album trống</div>
+    <div class="state-sub">Chưa có file nào trong album này.</div>
+  </div>
+
+</main>
+
+<!-- ── Lightbox ───────────────────────────────────────── -->
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Xem ảnh/video">
+  <button class="lightbox-close" id="lbClose" aria-label="Đóng">✕</button>
+  <button class="lightbox-nav prev" id="lbPrev" aria-label="Ảnh trước">‹</button>
+  <button class="lightbox-nav next" id="lbNext" aria-label="Ảnh tiếp theo">›</button>
+
+  <div class="lightbox-content" id="lbContent">
+    <!-- Filled by JS -->
+  </div>
+</div>
+
+<!-- ── QR Modal ───────────────────────────────────────── -->
+<div class="qr-modal" id="qrModal" role="dialog" aria-modal="true" aria-label="QR Code Album">
+  <div class="qr-modal-box">
+    <div class="qr-modal-title">📱 QR Code Album</div>
+    <div class="qr-modal-sub">Quét mã để mở album trên điện thoại</div>
+    <div class="qr-modal-img">
+      <img id="qrModalImg" src="" alt="QR code" width="180" height="180" />
+    </div>
+    <div class="qr-modal-id" id="qrModalId">—</div>
+    <button class="btn-close-qr" id="btnCloseQR" type="button">Đóng</button>
+  </div>
+</div>
+
+<script src="/js/album-viewer.js"></script>
+</body>
+</html>

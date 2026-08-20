@@ -1,98 +1,94 @@
-# Kế hoạch Triển khai Tool Quản lý & Upload Ảnh/Video Local lên Server
+# Kế hoạch Triển khai Web App Upload Ảnh/Video lên Cloudflare R2
 
-Cập nhật kiến trúc phân tách rõ ràng với tầng điều phối `model_main.py`:
-- **File 1 (`processor.py`)**: Xử lý logic nghiệp vụ (quét file ảnh/video, tạo thumbnail, mở Picasa viewer, upload server, sinh mã QR & album).
-- **File 2 (`ui.py`)**: Các thành phần giao diện (Grid Card ô vuông, Gallery Scroll, Checkbox, Dialog QR & Album, Thanh trạng thái).
-- **File 3 (`model_main.py`)**: Class ứng dụng tổng (`MediaUploadApp` / `AppController`) nạp và kết nối tất cả các class/model từ `processor.py` và `ui.py`, quản lý trạng thái, điều phối dữ liệu giữa UI và Processor.
-- **File 4 (`main.py`)**: Điểm chạy chính siêu gọn, chỉ khởi tạo class tổng từ `model_main.py` và thực thi `app.run()`.
+## Mô tả Tổng quan
 
----
+Chuyển đổi công cụ quản lý & upload media từ ứng dụng Desktop (Python PyQt) thành **Web Application** hiện đại, sẵn sàng cho việc POC (Proof of Concept) và demo cho khách hàng.
 
-## User Review Required
-
-> [!NOTE]
-> - Cấu trúc 4 file theo chuẩn tách lớp (Separation of Concerns / MVC):
->   - `processor.py` = Model & Services
->   - `ui.py` = View Components
->   - `model_main.py` = Controller / Master Application Class
->   - `main.py` = Launcher Script
-> - Giữ nguyên đầy đủ các tính năng: Grid ô vuông có nút chọn, nút xem bằng Picasa, nút upload server, popup mã QR + Tên Album tra cứu.
+- **Frontend**: HTML5, Vanilla CSS (Dark Glassmorphism Design System), Vanilla JS (không dùng framework để tối ưu tốc độ và đơn giản khi POC).
+- **Backend**: Node.js với Express framework.
+- **Lưu trữ Object Storage**: Cloudflare R2 (S3-Compatible API với `@aws-sdk/client-s3` & `@aws-sdk/lib-storage`).
+- **Tính năng nổi bật**: Kéo thả media, xem preview ô vuông, upload theo tiến trình real-time, tự động tạo mã Album và hình ảnh mã QR code để quét/chia sẻ album tức thì.
 
 ---
 
-## Proposed Architecture & File Structure
+## Cấu trúc Thư mục Dự án (Project Architecture)
 
 ```
-upload_video_tooler/
-├── processor.py       # [NEW] File 1: Xử lý logic, quét folder, thumbnail, Picasa, upload, QR
-├── ui.py              # [NEW] File 2: Thành phần UI (MediaCardWidget, MainWindowUI, QRResultDialog, SettingsDialog)
-├── model_main.py      # [NEW] File 3: Class tổng hợp kết nối Processor & UI (MediaUploadApp)
-├── main.py            # [MODIFY] File 4: File chạy chính, chỉ gọi class tổng rồi chạy
-└── requirements.txt   # [NEW] Danh sách thư viện phụ thuộc
-```
-
----
-
-## Proposed Changes
-
-### File 1: `processor.py` (Xử lý yêu cầu)
-- **`MediaScanner`**: Quét folder, phân loại danh sách đường dẫn ảnh và video, kiểm tra định dạng và dung lượng.
-- **`ThumbnailGenerator`**: Tạo thumbnail tối ưu với cache cho ảnh (Pillow) và video (OpenCV lấy frame đầu).
-- **`ViewerManager`**: Kích hoạt mở file bằng Picasa Photo Viewer (`PicasaPhotoViewer.exe` hoặc tuỳ biến path, fallback default system viewer).
-- **`UploaderService`**: Xử lý tải ảnh/video đã chọn lên server với tiến trình theo thời gian thực (hỗ trợ cả real server API lẫn mock server tiện test offline).
-- **`QRAlbumGenerator`**: Sinh mã album và tạo hình ảnh mã QR (dùng `qrcode` + PIL).
-
----
-
-### File 2: `ui.py` (UI cơ bản & nâng cao)
-- **`MediaCardWidget`**: Widget từng ô vuông (ảnh thumbnail tỉ lệ vuông, badge phân loại ẢNH/VIDEO, tên file, checkbox chọn, nút "👁 Xem ảnh" qua Picasa).
-- **`MainWindowUI`**: Khung cửa sổ chính (thanh chọn thư mục, bộ lọc, thanh công cụ Chọn tất cả/Bỏ chọn, khu vực Grid cuộn mượt mà, thanh tiến trình & nút Upload nổi bật).
-- **`QRResultDialog`**: Hộp thoại hiển thị sau khi upload thành công với Tên Album (mã tra cứu) + Hình ảnh Mã QR lớn, rõ nét để quét trực tiếp + nút copy link/mở web.
-- **`SettingsDialog`**: Cửa sổ cấu hình Server URL và đường dẫn Picasa Viewer.
-
----
-
-### File 3: `model_main.py` (Class tổng hợp điều phối)
-- Import tất cả các class liên quan từ `processor.py` và `ui.py`.
-- **`MediaUploadApp`**: Class tổng quản lý toàn bộ vòng đời ứng dụng:
-  - Khởi tạo `QApplication` và nạp theme/style.
-  - Khởi tạo các services từ `processor.py` (`MediaScanner`, `ThumbnailGenerator`, `UploaderService`, `ViewerManager`, `QRAlbumGenerator`).
-  - Khởi tạo cửa sổ giao diện từ `ui.py`.
-  - Kết nối toàn bộ signals & slots: khi user chọn thư mục -> quét file -> tải thumbnail -> chọn/bỏ chọn file -> bấm xem ảnh Picasa -> bấm upload -> hiển thị QR popup.
-  - Cung cấp hàm `run()` đơn giản để `main.py` chỉ cần gọi và chạy.
-
----
-
-### File 4: `main.py` (Main Launcher)
-- File launcher tối giản:
-```python
-import sys
-from model_main import MediaUploadApp
-
-def main():
-    app = MediaUploadApp()
-    sys.exit(app.run())
-
-if __name__ == "__main__":
-    main()
+tool_upload_video_image/
+├── .env                           ← Keys R2 (giữ nguyên)
+│
+├── web/
+│   ├── frontend/                  ← Giao diện web
+│   │   ├── index.html             ← Trang upload
+│   │   ├── album.html             ← Trang xem album
+│   │   ├── css/
+│   │   │   ├── main.css           ← Dark glassmorphism design
+│   │   │   └── album.css          ← Album viewer styles
+│   │   └── js/
+│   │       ├── uploader.js        ← Drag-drop, grid, XHR upload
+│   │       ├── qr-display.js      ← Popup QR sau upload
+│   │       └── album-viewer.js    ← Lightbox, filter, QR modal
+│   │
+│   └── backend/
+│       ├── server.js              ← Express server (port 3000)
+│       ├── package.json
+│       └── src/
+│           ├── routes/
+│           │   ├── upload.js      ← POST /api/upload
+│           │   └── album.js       ← GET /api/album/:id
+│           ├── services/
+│           │   ├── r2-storage.js  ← Cloudflare R2 AWS SDK v3
+│           │   └── qr-service.js  ← Sinh QR code
+│           └── utils/
+│               └── file-utils.js  ← Validate file type/size
+│
+└── python/                        ← Code Python cũ (giữ nguyên)
+    ├── main.py
+    ├── model_main.py
+    ├── processor.py
+    ├── ui.py
+    └── requirements.txt
 ```
 
 ---
 
-## Verification Plan
+## Chi tiết Triển khai
 
-### Automated & Unit Verification
-1. Kiểm tra tính hợp lệ cú pháp Python của cả 4 file:
-   ```bash
-   /home/manh/miniconda3/envs/py311/bin/python -m py_compile processor.py ui.py model_main.py main.py
-   ```
-2. Kiểm tra khởi tạo class tổng trong môi trường headless/unit test:
-   ```bash
-   /home/manh/miniconda3/envs/py311/bin/python -c "from model_main import MediaUploadApp; print('Master App Class imported successfully')"
-   ```
+### 1. Backend Service (`web/backend/`)
+- **`server.js`**: Khởi tạo Express app, cấu hình Middleware (CORS, JSON, URL-encoded), phục vụ các file tĩnh ở `web/frontend/` và tích hợp các API routes.
+- **`src/services/r2-storage.js`**: 
+  - Khởi tạo S3 Client kết nối đến Cloudflare R2 Endpoint (`my-storge-tool`).
+  - Hỗ trợ Upload file dung lượng lớn bằng Multipart Upload.
+  - Hàm `listAlbumFiles(albumId)` để truy vấn danh sách file trong album.
+- **`src/services/qr-service.js`**: Tạo hình ảnh QR Code dạng Data URL (base64) để nhúng trực tiếp vào giao diện HTML.
+- **`src/routes/upload.js`**: Endpoint `POST /api/upload` tiếp nhận file multipart/form-data từ client, xử lý upload lên R2 và trả về thông tin Album + QR Code.
+- **`src/routes/album.js`**: Endpoint `GET /api/album/:id` trả về thông tin và danh sách tệp của album để giao diện viewer hiển thị.
+- **`src/utils/file-utils.js`**: Kiểm tra định dạng (Ảnh: JPG, PNG, WEBP, GIF... | Video: MP4, MOV, MKV, WEBM...) và giới hạn dung lượng file.
 
-### Manual / Visual Verification
-1. Chạy thử nghiệm công cụ trên thư mục mẫu chứa cả ảnh và video:
-   - Hiển thị danh sách ô vuông kèm thumbnail.
-   - Thử nghiệm chức năng chọn ảnh, xem ảnh qua Picasa.
-   - Thử nghiệm Upload và kiểm tra hiển thị Mã QR + Tên Album.
+### 2. Frontend Interface (`web/frontend/`)
+- **`index.html` & `main.css` & `uploader.js`**:
+  - Giao diện Dark Glassmorphism cao cấp, hiệu ứng chuyển động mượt mà.
+  - Vùng Kéo & Thả (Drag & Drop) thông minh.
+  - Grid card hiển thị preview ô vuông cho ảnh và video kèm badge phân loại.
+  - Nút Chọn tất cả / Bỏ chọn / Xóa tất cả và ô nhập Tên Album tùy chỉnh.
+  - Sticky Upload Bar ở dưới màn hình kèm thanh tiến trình upload (Progress Bar).
+- **`qr-display.js`**: Pop-up Dialog hiển thị thành công kèm Mã Album, nút Copy nhanh và hình ảnh Mã QR chất lượng cao.
+- **`album.html` & `album.css` & `album-viewer.js`**:
+  - Trang hiển thị Album media theo đường dẫn `/album.html?id=ALBUM_ID`.
+  - Bộ lọc media: Tất cả, Chỉ Ảnh, Chỉ Video.
+  - Trình xem ảnh/video phóng to (Lightbox) hỗ trợ phím điều hướng (Trái/Phải/ESC) và tải file.
+
+### 3. Lưu trữ Python Cũ (`python/`)
+- Tách biệt toàn bộ mã nguồn Python desktop cũ (`processor.py`, `ui.py`, `model_main.py`, `main.py`) vào thư mục `python/` để phục vụ tham khảo hoặc sử dụng khi cần.
+
+---
+
+## Hướng dẫn Vận hành
+
+### Khởi động Web App
+```bash
+cd web/backend
+npm install
+npm start
+```
+Truy cập trình duyệt tại địa chỉ: `http://localhost:3000`
