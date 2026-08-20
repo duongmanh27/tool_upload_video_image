@@ -228,23 +228,22 @@ function render(filter){
 
 // Lightbox
 function openLb(i){curIdx=i;renderLb();$('lb').classList.add('open');document.body.style.overflow='hidden';}
-function closeLb(){$('lb').classList.remove('open');document.body.style.overflow='';const v=$('lbInner').querySelector('video');if(v)v.pause();}
+function closeLb(){$('lb').classList.remove('open');document.body.style.overflow='';const v=$('lbInner').querySelector('video');if(v){v.pause();v.removeAttribute('src');v.load();}}
 function renderLb(){
   const f=filtered[curIdx];if(!f)return;
-  const v=$('lbInner').querySelector('video');if(v)v.pause();
   const inner=$('lbInner');inner.innerHTML='';
-  if(f.mediaType==='image'){const img=document.createElement('img');img.src=f.url;img.alt=f.fileName;inner.appendChild(img);}
-  else{
+  if(f.mediaType==='image'){
+    const img=document.createElement('img');img.src=f.url;img.alt=f.fileName;inner.appendChild(img);
+  }else{
     const vid=document.createElement('video');
     vid.controls=true;
     vid.playsInline=true;
-    vid.muted=true;
-    vid.autoplay=true;
     vid.setAttribute('playsinline','');
     vid.setAttribute('webkit-playsinline','');
-    vid.setAttribute('preload','auto');
-    vid.innerHTML='<source src="'+f.url+'" type="video/mp4">';
+    vid.setAttribute('preload','metadata');
+    vid.src=f.url;
     inner.appendChild(vid);
+    vid.load();
   }
   const cap=document.createElement('div');cap.className='lb-cap';
   cap.innerHTML='<span class="name">'+esc(f.fileName)+'</span><span class="counter">'+(curIdx+1)+'/'+filtered.length+'</span><a class="dl" href="'+f.url+'" download="'+f.fileName+'" target="_blank">⬇️ Tải</a>';

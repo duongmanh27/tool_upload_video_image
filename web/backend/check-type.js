@@ -1,6 +1,6 @@
 const { S3Client, ListObjectsV2Command, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, 'web/backend/../../.env') });
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const BUCKET_NAME = 'my-storge-tool';
 
@@ -15,16 +15,21 @@ const r2Client = new S3Client({
 });
 
 async function checkBucket() {
-  const command = new ListObjectsV2Command({
-    Bucket: BUCKET_NAME,
-    MaxKeys: 10,
-  });
-  const res = await r2Client.send(command);
-  for (const obj of res.Contents || []) {
-    if (obj.Key.endsWith('.mp4')) {
-      const head = await r2Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: obj.Key }));
-      console.log(`File: ${obj.Key} | Content-Type: ${head.ContentType}`);
+  try {
+    const command = new ListObjectsV2Command({
+      Bucket: BUCKET_NAME,
+      MaxKeys: 100,
+    });
+    const res = await r2Client.send(command);
+    console.log(`Found ${res.Contents?.length || 0} objects.`);
+    for (const obj of res.Contents || []) {
+      if (obj.Key.endsWith('.mp4')) {
+        const head = await r2Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: obj.Key }));
+        console.log(`File: ${obj.Key} | Content-Type: ${head.ContentType}`);
+      }
     }
+  } catch (err) {
+    console.error(err);
   }
 }
 
