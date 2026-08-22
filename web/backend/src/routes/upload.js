@@ -202,9 +202,13 @@ router.post('/complete', express.json(), async (req, res) => {
         f.parts.sort((a, b) => a.PartNumber - b.PartNumber);
         await completeMultipartUpload(f.key, f.uploadId, f.parts);
       }
-      // Fix moov atom cho video để iOS Safari xem được (Chạy ngầm không block)
+      // Fix moov atom và convert H.264 cho video để iOS Safari xem được (Chờ xử lý xong mới trả kết quả)
       if (f.mediaType === 'video' && f.key.toLowerCase().endsWith('.mp4')) {
-        fixVideoFastStart(f.key).catch(e => console.error(`[Background FFmpeg] Lỗi: ${e.message}`));
+        try {
+          await fixVideoFastStart(f.key);
+        } catch(e) {
+          console.error(`[FFmpeg] Lỗi xử lý video: ${e.message}`);
+        }
       }
     }
 

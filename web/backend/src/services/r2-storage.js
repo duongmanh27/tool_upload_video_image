@@ -243,7 +243,9 @@ async function fixVideoFastStart(key) {
     await new Promise((resolve, reject) => {
       execFile(ffmpegPath, [
         '-i', inputPath,
-        '-c:v', 'copy',           // Giữ nguyên video (nhanh)
+        '-c:v', 'libx264',        // Ép convert sang H.264 (bắt buộc cho iOS)
+        '-preset', 'ultrafast',   // Tốc độ convert nhanh nhất
+        '-crf', '28',             // Nén nhẹ để giảm dung lượng
         '-c:a', 'aac',            // Convert audio sang aac (fix lỗi iOS mất tiếng)
         '-b:a', '128k',           // Bitrate chuẩn cho web
         '-movflags', '+faststart', // Di chuyển moov atom lên đầu

@@ -236,16 +236,12 @@ function renderLb(){
     const img=document.createElement('img');img.src=f.url;img.alt=f.fileName;inner.appendChild(img);
   }else{
     const vid=document.createElement('video');
+    vid.src=f.url;
     vid.setAttribute('controls','');
     vid.setAttribute('playsinline','');
     vid.setAttribute('webkit-playsinline','');
     vid.setAttribute('x5-playsinline','');
     vid.setAttribute('preload','auto');
-    vid.setAttribute('crossorigin','anonymous');
-    const src=document.createElement('source');
-    src.src=f.url;
-    src.type=f.fileName.toLowerCase().endsWith('.webm')?'video/webm':'video/mp4';
-    vid.appendChild(src);
     inner.appendChild(vid);
     vid.load();
   }

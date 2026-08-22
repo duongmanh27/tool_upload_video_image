@@ -307,7 +307,7 @@ async function doUpload() {
     await Promise.all(allFilePromises);
 
     // 3. Hoàn tất Upload
-    setProgress(99, 'Đang tạo Album và mã QR...');
+    setProgress(99, 'Đang xử lý Video và tạo Album... (Vui lòng không đóng trang)');
     const completeRes = await fetch('/api/upload/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -421,3 +421,42 @@ btnUpload.addEventListener('click', doUpload);
 
 // Expose for qr-display.js
 window.showToast = showToast;
+
+// ── Search Album ───────────────────────────────────────────────────────────
+const searchInput = $('searchInput');
+const btnSearch = $('btnSearch');
+
+async function handleSearch() {
+  const val = searchInput.value.trim();
+  if (!val) {
+    showToast('Vui lòng nhập mã Album!', 'error');
+    return;
+  }
+  
+  btnSearch.textContent = 'Đang tìm...';
+  btnSearch.disabled = true;
+  
+  try {
+    const res = await fetch(`/api/album/${encodeURIComponent(val)}`);
+    const data = await res.json();
+    
+    if (res.ok && data.success) {
+      // Chuyển hướng sang trang xem album
+      window.location.href = `/album.html?id=${encodeURIComponent(val)}`;
+    } else {
+      showToast('Album không tồn tại hoặc đã bị xóa!', 'error');
+    }
+  } catch (err) {
+    showToast('Lỗi kết nối khi tìm kiếm.', 'error');
+  } finally {
+    btnSearch.textContent = '🔍 Tìm';
+    btnSearch.disabled = false;
+  }
+}
+
+if (btnSearch && searchInput) {
+  btnSearch.addEventListener('click', handleSearch);
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleSearch();
+  });
+}

@@ -28,15 +28,14 @@ router.get('/:albumId', async (req, res) => {
 
     const files = await listAlbumFiles(albumId);
 
-    const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
-    const host = req.get('host') || `localhost:${process.env.PORT || 3000}`;
-    const albumUrl = `${protocol}://${host}/album.html?id=${albumId}`;
-    const qrDataUrl = await generateQRDataUrl(albumUrl);
+    const { PUBLIC_BASE_URL } = require('../services/r2-storage');
+    const publicAlbumUrl = `${PUBLIC_BASE_URL}/${albumId}/index.html`;
+    const qrDataUrl = await generateQRDataUrl(publicAlbumUrl);
 
     res.json({
       success: true,
       albumId,
-      albumUrl,
+      albumUrl: publicAlbumUrl,
       qrDataUrl,
       totalFiles: files.length,
       imagesCount: files.filter(f => f.mediaType === 'image').length,
